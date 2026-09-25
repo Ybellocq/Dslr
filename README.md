@@ -22,8 +22,9 @@ obligatoires : `describe.py`, `histogram.py`, `scatter_plot.py`, `pair_plot.py`,
 6. [Utilisation pas à pas](#6-utilisation-pas-à-pas)
 7. [Référence complète des fonctions](#7-référence-complète-des-fonctions)
 8. [Résultats](#8-résultats)
-9. [Limites et pistes d'amélioration](#9-limites-et-pistes-damélioration)
-10. [Conformité au sujet](#10-conformité-au-sujet)
+9. [Bonus, outillage (Makefile) et rendu graphique](#9-bonus-outillage-makefile-et-rendu-graphique)
+10. [Limites et pistes d'amélioration](#10-limites-et-pistes-damélioration)
+11. [Conformité au sujet](#11-conformité-au-sujet)
 
 ---
 
@@ -76,6 +77,35 @@ matplotlib>=3.5
 > `pandas` n'a servi qu'à *vérifier* les résultats de `describe.py` (écart
 > maximal observé : 5·10⁻⁷, dû à l'arrondi à 6 décimales).
 
+### 2.1 Installation et interpréteur — géré automatiquement par `make`
+
+Un ordinateur peut avoir **plusieurs** Python 3, et `numpy`/`matplotlib` ne sont
+souvent installés que dans l'un d'eux (sous Homebrew, `python3` pointe vers une
+version « externally managed » **sans** `numpy`). Vous n'avez donc **rien à
+installer à la main** : le `Makefile` s'en charge.
+
+Au premier `make`, la cible `deps` :
+
+1. **utilise** un Python 3 du système qui possède déjà `numpy` + `matplotlib` s'il
+   en existe un ; **sinon**
+2. **crée un environnement virtuel local `.venv/`** et y installe les dépendances
+   (`pip install -r requirements.txt`) — sans `sudo`, sans toucher au système.
+
+Toutes les cibles réutilisent ensuite cet interpréteur.
+
+```bash
+make check     # affiche l'interpréteur retenu et les versions de numpy/matplotlib
+make deps      # verifie / installe les dependances (fait automatiquement par `make all`)
+make install   # force la (re)installation des dependances
+make distclean # supprime .venv en plus des artefacts
+```
+
+- **Surcharger l'interpréteur** : `make PYTHON=/usr/bin/python3 all`.
+- **Changer l'emplacement du venv** : `make VENV=.mon_venv all`.
+- En lançant un script **directement** avec un interpréteur sans `numpy`, un message
+  d'erreur explicite indique la marche à suivre (au lieu d'une `ModuleNotFoundError` brute).
+- `requirements.txt` contient : `numpy>=1.21` et `matplotlib>=3.5`.
+
 ---
 
 ## 3. Structure du dépôt
@@ -98,7 +128,9 @@ Dslr/
 ├── logreg_predict.py          # prédiction (génère houses.csv)
 ├── weights.json               # poids + paramètres de prétraitement (généré)
 ├── houses.csv                 # prédictions finales (généré)
+├── Makefile                   # automatisation (make all, make plot, make bonus...)
 ├── requirements.txt
+├── .gitignore
 └── README.md
 ```
 
@@ -341,9 +373,13 @@ Toutes les commandes se lancent **depuis la racine du dépôt**.
 ```bash
 python3 describe.py datasets/dataset_train.csv
 python3 describe.py datasets/dataset_train.csv --exclude Divination,Flying
+python3 describe.py datasets/dataset_train.csv --extra
 ```
 
 - `--exclude` : liste (séparée par des virgules) de colonnes numériques à retirer.
+- `--extra` : ajoute les statistiques **bonus** — `Variance`, `Range`, `IQR`,
+  `Missing`, `Missing %`, `Skewness`. Sans cette option, la sortie reste
+  strictement le tableau obligatoire à 8 lignes.
 
 ### 6.2 Visualisations
 
@@ -373,9 +409,22 @@ python3 logreg_train.py datasets/dataset_train.csv --cv 5 --output weights.json
 
 # hyperparamètres personnalisés
 python3 logreg_train.py datasets/dataset_train.csv --lr 0.3 --epochs 10000 --l2 0.01
+
+# BONUS : autres optimiseurs (descente stochastique / par mini-lots)
+python3 logreg_train.py datasets/dataset_train.csv --optimizer sgd --epochs 50 --seed 42
+python3 logreg_train.py datasets/dataset_train.csv --optimizer minibatch --batch-size 32 --epochs 300
 ```
 
-Options : `--output`, `--features`, `--lr`, `--epochs`, `--l2`, `--cv`, `--seed`.
+Options : `--output`, `--features`, `--lr`, `--epochs`, `--optimizer {batch,sgd,minibatch}`,
+`--batch-size`, `--l2`, `--cv`, `--seed`.
+
+- `--optimizer` : `batch` (défaut, une mise à jour par époque sur tout le jeu),
+  `sgd` (une mise à jour par exemple) ou `minibatch` (une mise à jour par lot).
+- `--batch-size` : taille du lot pour `minibatch` (défaut 32).
+- `--seed` : graine contrôlant **à la fois** le mélange des indices (SGD / mini-batch)
+  et les plis de la validation croisée — garantit la reproductibilité.
+- Avec `sgd`/`minibatch`, un `--epochs` bien plus faible (20–300) suffit : chaque
+  époque fait déjà des milliers de mises à jour.
 
 ### 6.4 Prédiction
 
@@ -388,7 +437,20 @@ python3 logreg_predict.py datasets/dataset_test.csv weights.json --output houses
 
 Options : `--output` (défaut `houses.csv`).
 
-### 6.5 Enchaînement complet
+### 6.5 Enchaînement complet (Makefile)
+
+Tout est également automatisé via le `Makefile` (exécuter `make help` pour la liste) :
+
+```bash
+make all          # describe + les 3 figures + entraînement + prédiction
+make plots        # les trois figures uniquement
+make train-cv     # entraînement + validation croisée 5 plis
+make bonus        # describe --extra + comparaison batch / sgd / minibatch
+make clean        # supprime weights.json, houses.csv et plots/*.png
+make re           # clean + all
+```
+
+Manuellement, dans l'ordre :
 
 ```bash
 python3 describe.py      datasets/dataset_train.csv
@@ -447,10 +509,23 @@ cat houses.csv
 | `accuracy(predictions, truth) -> float` | Taux de bonnes réponses, calculé à la main (aucune dépendance à sklearn). |
 | `stratified_folds(labels, k=5, seed=42) -> list[np.ndarray]` | Construit `k` plis stratifiés par maison (indices), de façon déterministe (`seed`). |
 
+#### Statistiques supplémentaires (bonus)
+
+| Fonction | Description |
+|---|---|
+| `variance(values, ddof=1) -> float` | Variance (échantillon ou population selon `ddof`). |
+| `skewness(values) -> float` | Asymétrie (coefficient de Fisher, moment centré d'ordre 3 normalisé). |
+| `value_range(values) -> float` | Étendue `max − min`. |
+| `iqr(values) -> float` | Écart interquartile `Q3 − Q1`. |
+| `missing_count(values) -> int` | Nombre de valeurs manquantes (NaN). |
+| `describe_feature_extra(values) -> dict` | Les six statistiques du bonus. |
+| `describe_feature_full(values) -> dict` | Fusionne statistiques obligatoires et bonus. |
+
 #### Aide au tracé
 
 | Fonction | Description |
 |---|---|
+| `apply_style()` | Applique le style matplotlib commun (police, grille discrète, bordures, dpi, fond). |
 | `prepare_plots_dir(path="plots") -> str` | Crée (si besoin) le dossier de figures et le renvoie. |
 | `parse_common_plot_args(parser, default_name)` | Ajoute à un `ArgumentParser` les options communes : `dataset`, `--save`, `--no-show`. |
 | `finalize_figure(fig, save_path=None, show=False)` | Sauvegarde en PNG (150 dpi) et/ou affiche une figure, puis libère la mémoire. |
@@ -459,7 +534,7 @@ cat houses.csv
 
 | Fonction | Description |
 |---|---|
-| `format_stats(features, stats) -> str` | Aligne et met en forme le tableau (lignes = statistiques, colonnes = features) avec 6 décimales. |
+| `format_stats(features, stats, labels=STAT_LABELS, keys=STAT_KEYS) -> str` | Aligne et met en forme le tableau (lignes = statistiques, colonnes = features) avec 6 décimales ; `labels`/`keys` permettent d'ajouter les lignes bonus. |
 | `build_stats(features, matrix) -> dict` | Calcule les statistiques de chaque colonne numérique. |
 | `main()` | Lit les arguments, charge le dataset, affiche le tableau. |
 
@@ -493,11 +568,13 @@ cat houses.csv
 | Fonction | Description |
 |---|---|
 | `cost_function(probabilities, Y) -> float` | Calcule `J(theta)` sur un lot (log clampé à `[eps, 1−eps]` pour éviter `log(0)`). |
-| `train_one_vs_all(X_std, Y, lr, epochs, l2=0.0, verbose, log_every) -> (theta, historique)` | Cœur de l'algorithme : descente de gradient batch, ajoute la colonne de biais, renvoie `theta` de forme `(n_features+1, 4)`. |
+| `OPTIMIZERS` | Tuple des optimiseurs disponibles : `("batch", "sgd", "minibatch")`. |
+| `effective_batch_size(optimizer, batch_size, n_samples) -> int` | Traduit un nom d'optimiseur en taille de lot effective (bornée à `n`). |
+| `train_one_vs_all(X_std, Y, lr, epochs, l2=0.0, verbose, log_every, optimizer="batch", batch_size=32, seed=42) -> (theta, historique)` | Cœur de l'algorithme : descente de gradient (batch / SGD / mini-batch), ajoute la colonne de biais, mélange reproductible via `seed`, renvoie `theta` de forme `(n_features+1, 4)`. |
 | `predict_scores(X_std, theta) -> np.ndarray` | Probabilités `(n_lignes × 4)` pour chaque maison. |
 | `labels_from_scores(scores, houses) -> list[str]` | Argmax par ligne → nom de maison. |
 | `preprocess_train(X) -> (X_std, mu, sd)` | Impute puis standardise un jeu d'entraînement. |
-| `cross_validate(features, X, labels, lr, epochs, l2, k, seed) -> float` | Accuracy moyenne par validation croisée stratifiée. |
+| `cross_validate(features, X, labels, lr, epochs, l2, k, seed, optimizer="batch", batch_size=32) -> float` | Accuracy moyenne par validation croisée stratifiée, avec l'optimiseur choisi. |
 | `save_weights(path, features, mu, sd, theta, hyperparameters)` | Sérialise poids + prétraitement dans un JSON. |
 | `build_parser() -> ArgumentParser` | Construit l'interface en ligne de commande. |
 | `main()` | Orchestration : validation éventuelle, entraînement final, sauvegarde. |
@@ -548,6 +625,20 @@ Validation croisée stratifiée à 5 plis (pipeline livré, 8000 itérations, lr
   correspond à des étiquettes intrinsèquement ambiguës (élèves dont le profil
   chevauche deux maisons), et non à un défaut du modèle.
 
+### Comparaison des optimiseurs (bonus)
+
+Les trois optimiseurs ont été comparés avec la même validation croisée à 5 plis :
+
+| Optimiseur | Réglage | Accuracy moyenne |
+|---|---|---|
+| `batch` | 5000 époques, lr 0.5 | **0.9818** |
+| `minibatch` | lots de 32, 300 époques, lr 0.5 | **0.9818** |
+| `sgd` | 50 époques, lr 0.5 | **0.9818** |
+
+Les trois convergent vers le même plafond : la variante choisie n'a pas d'effet
+mesurable ici, seule la vitesse de convergence diffère (mini-batch converge en
+beaucoup moins d'époques).
+
 `logreg_predict.py` produit `houses.csv` (400 lignes + en-tête) :
 
 ```
@@ -562,22 +653,71 @@ Index,Hogwarts House
 
 ---
 
-## 9. Limites et pistes d'amélioration
+## 9. Bonus, outillage (Makefile) et rendu graphique
+
+### 9.1 Bonus du sujet réalisés
+
+| Bonus du PDF | Statut | Détail |
+|---|---|---|
+| Champs supplémentaires pour `describe.py` | ✅ | Option `--extra` : Variance, Range, IQR, Missing, Missing %, Skewness |
+| Descente de gradient stochastique (SGD) | ✅ | `--optimizer sgd` (mélange reproductible via `--seed`) |
+| Autres optimiseurs (mini-batch / batch) | ✅ | `--optimizer batch` (défaut) et `--optimizer minibatch --batch-size N` |
+
+L'accuracy restant identique entre les trois optimiseurs (cf. § 8), le modèle
+n'a pas été modifié : seul l'outil l'a été.
+
+### 9.2 Makefile
+
+| Cible | Commande exécutée |
+|---|---|
+| `make deps` | vérifie et installe `numpy`/`matplotlib` (venv local si nécessaire) |
+| `make check` | affiche l'interpréteur retenu + versions numpy/matplotlib |
+| `make install` | force la (re)installation des dépendances |
+| `make describe` | `python3 describe.py datasets/dataset_train.csv` |
+| `make describe-extra` | idem + `--extra` |
+| `make histogram` / `scatter` / `pair` | les trois scripts de visualisation (`--no-show`) |
+| `make plots` | les trois figures |
+| `make train` | `logreg_train.py` (batch) → `weights.json` |
+| `make train-cv` | `logreg_train.py --cv 5` |
+| `make bonus` | `describe --extra` + comparaison batch / sgd / minibatch |
+| `make predict` | `logreg_predict.py` → `houses.csv` |
+| `make all` | `deps` + `describe` + `plots` + `train` + `predict` |
+| `make clean` | supprime `weights.json`, `houses.csv`, `plots/*.png` |
+| `make distclean` | comme `clean` + supprime `.venv/` |
+| `make re` | `clean` puis `all` |
+
+### 9.3 Rendu graphique
+
+- **Palette unifiée** (`HOUSE_COLORS`) : rouge brique (Gryffindor), vert émeraude
+  (Slytherin), bleu acier (Ravenclaw), jaune doré (Hufflepuff) — plus sobres et
+  mieux contrastées que les couleurs « bonbon » d'origine. Une variante adoucie
+  (`HOUSE_COLORS_SOFT`) sert aux remplissages.
+- **Style commun** (`apply_style()`) : police unique, grille discrète passée
+  *sous* les tracés, suppression des bordures haute et droite, fond légèrement
+  chaud, export à 150 dpi. Les **trois** figures partagent la même identité.
+- **Histogrammes** : titres sur plusieurs lignes (plus de chevauchement), barres à
+  contour blanc, cours gagnant encadré et annoté.
+- **Nuage de points** : points à contour fin, **droite de régression** ajoutée
+  avec la valeur de `r` en légende.
+- **Pair plot** : grille aérée, diagonale en histogrammes superposés par maison,
+  étiquettes d'axes lisibles, légende unique.
+
+---
+
+## 10. Limites et pistes d'amélioration
 
 - **Plafond ≈ 98.2 %** : la frontière linéaire one-vs-all atteint le maximum
   atteignable sur ce jeu ; le reste est du bruit d'étiquettes. Des features
   polynomiales n'apportent qu'un gain marginal (vérifié : ~98.5 %).
-- **Bonifications possibles** (partie bonus du sujet) :
-  - descente de gradient **stochastique** (SGD) et **mini-batch** ;
-  - champs supplémentaires pour `describe.py` (médiane, variance, valeurs
-    manquantes par colonne, asymétrie, etc.) ;
-  - arrêt anticipé sur l'évolution du coût.
+- **Bonus réalisés** (cf. § 9) : SGD et mini-batch, statistiques étendues de
+  `describe.py`. **Pistes restantes** : arrêt anticipé sur l'évolution du coût,
+  matrice de confusion / précision-rappel par maison, tests automatisés.
 - **Robustesse** : le modèle est sensible au taux d'apprentissage ; `--lr 0.5`
   converge bien, mais `--l2` peut aider à stabiliser si l'on ajoute des features.
 
 ---
 
-## 10. Conformité au sujet
+## 11. Conformité au sujet
 
 - ✅ Six programmes nommés exactement comme demandé.
 - ✅ Aucune fonction de bibliothèque ne « fait le gros du travail »
@@ -587,3 +727,5 @@ Index,Hogwarts House
 - ✅ Régression logistique **multi-classes one-vs-all**.
 - ✅ `houses.csv` exactement au format demandé.
 - ✅ Accuracy ≥ 98 % en validation.
+- ✅ **Bonus** : statistiques étendues (`describe.py --extra`), SGD et mini-batch
+  (`logreg_train.py --optimizer`), automatisation (`Makefile`), reproductibilité (`--seed`).

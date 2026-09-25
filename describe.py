@@ -6,11 +6,15 @@ numeriques, les huit statistiques demandees par le sujet :
 
     Count, Mean, Std, Min, 25%, 50%, 75%, Max
 
+L'option ``--extra`` ajoute des statistiques supplementaires (bonus du sujet) :
+Variance, Range, IQR, Missing, Missing %, Skewness.
+
 Aucune fonction de bibliotheque ne calcule ces valeurs : tout passe par les
 fonctions ecrites a la main de ``dslr_utils``.
 
 Usage :
     python3 describe.py datasets/dataset_train.csv
+    python3 describe.py datasets/dataset_train.csv --extra
     python3 describe.py datasets/dataset_train.csv --exclude Divination,Flying
 """
 
@@ -19,23 +23,38 @@ from __future__ import annotations
 import argparse
 from typing import Dict, List
 
-from dslr_utils import STAT_KEYS, STAT_LABELS, describe_feature, load_dataset
+from dslr_utils import (
+    EXTRA_KEYS,
+    EXTRA_LABELS,
+    STAT_KEYS,
+    STAT_LABELS,
+    describe_feature_full,
+    load_dataset,
+)
 
 #: Espacement (en caracteres) entre deux colonnes du tableau.
 COLUMN_GAP = 2
 
+#: Nombre de decimales affichees (impose par l'exemple du sujet).
+DECIMALS = 6
 
-def format_stats(features: List[str], stats: Dict[str, Dict[str, float]]) -> str:
+
+def format_stats(
+    features: List[str],
+    stats: Dict[str, Dict[str, float]],
+    labels: List[str] = STAT_LABELS,
+    keys: List[str] = STAT_KEYS,
+) -> str:
     """Met en forme le tableau ``lignes = statistiques`` / ``colonnes = features``.
 
     Les valeurs sont affichees avec 6 decimales, comme dans l'exemple du sujet.
-    Chaque colonne est alignee sur la largeur maximale entre son nom et ses
-    valeurs formatees, puis separee de la suivante par :data:`COLUMN_GAP`.
+    ``labels`` / ``keys`` permettent d'afficher les statistiques obligatoires
+    seules (defaut) ou de les etendre avec celles du bonus (``--extra``).
     """
-    label_width = max(len(label) for label in STAT_LABELS) + COLUMN_GAP
+    label_width = max(len(label) for label in labels) + COLUMN_GAP
     columns = []
     for feature in features:
-        values = ["%.6f" % stats[feature][key] for key in STAT_KEYS]
+        values = ["%.*f" % (DECIMALS, stats[feature][key]) for key in keys]
         width = max([len(feature)] + [len(value) for value in values]) + COLUMN_GAP
         columns.append((feature, values, width))
 
@@ -43,7 +62,7 @@ def format_stats(features: List[str], stats: Dict[str, Dict[str, float]]) -> str
         "%*s" % (width, name) for name, _, width in columns
     )
     lines = [header]
-    for row_index, label in enumerate(STAT_LABELS):
+    for row_index, label in enumerate(labels):
         line = "%-*s" % (label_width, label)
         line += "".join("%*s" % (width, values[row_index]) for _, values, width in columns)
         lines.append(line)
@@ -51,9 +70,9 @@ def format_stats(features: List[str], stats: Dict[str, Dict[str, float]]) -> str
 
 
 def build_stats(features: List[str], matrix) -> Dict[str, Dict[str, float]]:
-    """Calcule les statistiques de chaque colonne numerique de ``matrix``."""
+    """Calcule toutes les statistiques (obligatoires + bonus) de chaque colonne."""
     return {
-        feature: describe_feature(matrix[:, index])
+        feature: describe_feature_full(matrix[:, index])
         for index, feature in enumerate(features)
     }
 
@@ -68,6 +87,11 @@ def main() -> None:
         default="",
         help="colonnes numeriques a exclure, separees par des virgules",
     )
+    parser.add_argument(
+        "--extra",
+        action="store_true",
+        help="ajoute les statistiques bonus : Variance, Range, IQR, Missing, Missing %%, Skewness",
+    )
     args = parser.parse_args()
 
     exclude = [name.strip() for name in args.exclude.split(",") if name.strip()]
@@ -75,8 +99,14 @@ def main() -> None:
     if not features:
         raise SystemExit("Aucune variable numerique trouvee dans %s" % args.dataset)
 
+    labels = list(STAT_LABELS)
+    keys = list(STAT_KEYS)
+    if args.extra:
+        labels += EXTRA_LABELS
+        keys += EXTRA_KEYS
+
     stats = build_stats(features, matrix)
-    print(format_stats(features, stats))
+    print(format_stats(features, stats, labels=labels, keys=keys))
 
 
 if __name__ == "__main__":

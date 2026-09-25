@@ -21,20 +21,25 @@ from __future__ import annotations
 
 import argparse
 import math
-from typing import Dict, List, Sequence, Tuple
+import textwrap
+from typing import List, Sequence, Tuple
 
 import numpy as np
 
 from dslr_utils import (
     HOUSES,
     HOUSE_COLORS,
+    apply_style,
     finalize_figure,
     load_dataset,
     mean,
     parse_common_plot_args,
     prepare_plots_dir,
+    require_plotting,
     std,
 )
+
+WINNER_COLOR = "#1f7a44"
 
 
 def homogeneity_score(column: Sequence[float], labels: Sequence[str]) -> float:
@@ -79,17 +84,15 @@ def plot_histograms(
     show: bool,
 ) -> None:
     """Trace une grille d'histogrammes (4 maisons superposees) pour chaque cours."""
-    import matplotlib
-
-    if not show:
-        matplotlib.use("Agg")
+    require_plotting(show)
     import matplotlib.pyplot as plt
 
+    apply_style()
     labels = np.asarray(labels)
     n = len(features)
     ncols = 4
     nrows = int(math.ceil(n / ncols))
-    fig, axes = plt.subplots(nrows, ncols, figsize=(4 * ncols, 3 * nrows))
+    fig, axes = plt.subplots(nrows, ncols, figsize=(3.6 * ncols, 2.9 * nrows))
     axes = np.atleast_1d(axes).ravel()
 
     for ax, feature in zip(axes, features):
@@ -99,33 +102,40 @@ def plot_histograms(
         if finite.size == 0:
             ax.set_visible(False)
             continue
-        bins = np.linspace(finite.min(), finite.max(), 25)
+        bins = np.linspace(finite.min(), finite.max(), 24)
         for house in HOUSES:
             selected = values[(labels == house) & (~np.isnan(values))]
             if selected.size == 0:
                 continue
-            ax.hist(selected, bins=bins, alpha=0.5, color=HOUSE_COLORS[house], label=house)
+            ax.hist(selected, bins=bins, color=HOUSE_COLORS[house], alpha=0.52,
+                    edgecolor="white", linewidth=0.5, label=house)
+
         is_winner = feature == winner
-        ax.set_title(feature, fontsize=9,
-                     fontweight="bold" if is_winner else "normal",
-                     color="#0b7a2f" if is_winner else "black")
+        ax.set_title("\n".join(textwrap.wrap(feature, 20)), fontsize=9.5,
+                     fontweight="bold" if is_winner else "semibold",
+                     color=WINNER_COLOR if is_winner else "#1b1b1b")
         if is_winner:
             for spine in ax.spines.values():
-                spine.set_color("#0b7a2f")
-                spine.set_linewidth(2.5)
-        ax.tick_params(labelsize=6)
+                spine.set_visible(True)
+                spine.set_color(WINNER_COLOR)
+                spine.set_linewidth(1.6)
+            ax.text(0.5, -0.30, "distribution homogene", transform=ax.transAxes,
+                    ha="center", va="top", fontsize=8, color=WINNER_COLOR,
+                    fontweight="semibold")
+        ax.tick_params(labelsize=7.5)
 
     for ax in axes[n:]:
         ax.set_visible(False)
 
     handles, legend_labels = axes[0].get_legend_handles_labels()
     if handles:
-        fig.legend(handles, legend_labels, loc="upper center", ncol=4, fontsize=10)
+        fig.legend(handles, legend_labels, loc="upper center", ncol=4,
+                   fontsize=10.5, bbox_to_anchor=(0.5, 1.005))
     fig.suptitle(
-        "Quel cours a un score homogene entre les 4 maisons ? -> %s" % winner,
-        fontsize=13, fontweight="bold", y=1.02,
+        "Quel cours a un score homogene entre les 4 maisons ?  ->  %s" % winner,
+        fontsize=14, fontweight="bold", y=1.02,
     )
-    fig.tight_layout()
+    fig.tight_layout(rect=(0, 0, 1, 0.985))
     finalize_figure(fig, save_path=save_path, show=show)
 
 

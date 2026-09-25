@@ -21,9 +21,22 @@ from __future__ import annotations
 import csv
 import math
 import os
+import sys
 from typing import Dict, List, Optional, Sequence, Tuple
 
-import numpy as np
+try:
+    import numpy as np
+except ImportError as exc:  # pragma: no cover - depend de l'environnement
+    raise SystemExit(
+        "Erreur : numpy est introuvable pour cet interpreteur.\n"
+        "  Interpreteur utilise : %s\n"
+        "  Solutions :\n"
+        "    - installer les dependances : python3 -m pip install -r requirements.txt\n"
+        "    - ou lancer via 'make' (qui selectionne automatiquement un interpreteur\n"
+        "      disposant de numpy ; verifiez avec 'make check').\n"
+        "    - sous macOS, '/usr/bin/python3' dispose deja de numpy et matplotlib.\n"
+        % sys.executable
+    ) from exc
 
 # --------------------------------------------------------------------------- #
 # Constantes du domaine
@@ -32,13 +45,26 @@ import numpy as np
 #: Les quatre maisons de Poudlard, dans un ordre stable et reutilisable.
 HOUSES: List[str] = ["Gryffindor", "Hufflepuff", "Ravenclaw", "Slytherin"]
 
-#: Couleurs (approximation des couleurs officielles) lisibles sur fond blanc.
+#: Palette principale des maisons : teintes sobres et harmonisees entre elles.
 HOUSE_COLORS: Dict[str, str] = {
-    "Gryffindor": "#ae0001",  # rouge ecarlate
-    "Hufflepuff": "#e8a500",  # jaune
-    "Ravenclaw": "#1f4fa8",   # bleu
-    "Slytherin": "#1c7a3a",   # vert
+    "Gryffindor": "#b03a2e",  # rouge brique
+    "Slytherin": "#1e7a52",   # vert emeraude
+    "Ravenclaw": "#2e5f9e",   # bleu acier
+    "Hufflepuff": "#d6a419",  # jaune dore
 }
+
+#: Variante adoucie (remplissages, aires, histogrammes).
+HOUSE_COLORS_SOFT: Dict[str, str] = {
+    "Gryffindor": "#e6a59c",
+    "Slytherin": "#9ed3b8",
+    "Ravenclaw": "#a9c4e6",
+    "Hufflepuff": "#efd28c",
+}
+
+#: Encre et fond communs a toutes les figures (coherence visuelle).
+FIGURE_BACKGROUND = "#fbfbf9"
+FIGURE_EDGE = "#4a4a4a"
+FIGURE_GRID = "#dcdcdc"
 
 #: Colonnes du CSV qui ne sont pas des notes de cours numeriques.
 NON_NUMERIC_COLUMNS = (
@@ -53,6 +79,10 @@ NON_NUMERIC_COLUMNS = (
 #: Libelles et cles des huit statistiques de ``describe``.
 STAT_LABELS: List[str] = ["Count", "Mean", "Std", "Min", "25%", "50%", "75%", "Max"]
 STAT_KEYS: List[str] = ["count", "mean", "std", "min", "25%", "50%", "75%", "max"]
+
+#: Statistiques supplementaires (bonus de ``describe.py``, option ``--extra``).
+EXTRA_LABELS: List[str] = ["Variance", "Range", "IQR", "Missing", "Missing %", "Skewness"]
+EXTRA_KEYS: List[str] = ["variance", "range", "iqr", "missing", "missing_pct", "skewness"]
 
 
 # --------------------------------------------------------------------------- #
@@ -238,6 +268,69 @@ def describe_matrix(X: np.ndarray, features: Sequence[str]) -> Dict[str, Dict[st
     return {feature: describe_feature(X[:, j]) for j, feature in enumerate(features)}
 
 
+def variance(values: Sequence[float], ddof: int = 1) -> float:
+    """Variance (ignore les NaN). ``ddof=1`` = echantillon, ``0`` = population."""
+    data = _finite(values)
+    n = data.size
+    if n <= ddof:
+        return float("nan")
+    mu = data.sum() / n
+    return float(((data - mu) ** 2).sum() / (n - ddof))
+
+
+def skewness(values: Sequence[float]) -> float:
+    """Asymetrie (coefficient de Fisher, moment centre d'ordre 3 normalise)."""
+    data = _finite(values)
+    n = data.size
+    if n < 2:
+        return float("nan")
+    mu = data.sum() / n
+    m2 = ((data - mu) ** 2).sum() / n
+    if m2 == 0:
+        return float("nan")
+    m3 = ((data - mu) ** 3).sum() / n
+    return float(m3 / (m2 ** 1.5))
+
+
+def value_range(values: Sequence[float]) -> float:
+    """Etendue : ``max - min`` (ignore les NaN)."""
+    data = _finite(values)
+    return float(data.max() - data.min()) if data.size else float("nan")
+
+
+def iqr(values: Sequence[float]) -> float:
+    """Ecart interquartile : ``Q3 - Q1``."""
+    return float(percentile(values, 75) - percentile(values, 25))
+
+
+def missing_count(values: Sequence[float]) -> int:
+    """Nombre de valeurs manquantes (NaN) dans une colonne."""
+    arr = np.asarray(values, dtype=float).ravel()
+    return int(np.isnan(arr).sum())
+
+
+def describe_feature_extra(values: Sequence[float]) -> Dict[str, float]:
+    """Statistiques supplementaires du bonus (option ``--extra``)."""
+    total = np.asarray(values, dtype=float).ravel().size
+    missing = missing_count(values)
+    ratio = (100.0 * missing / total) if total else float("nan")
+    return {
+        "variance": variance(values, ddof=1),
+        "range": value_range(values),
+        "iqr": iqr(values),
+        "missing": float(missing),
+        "missing_pct": ratio,
+        "skewness": skewness(values),
+    }
+
+
+def describe_feature_full(values: Sequence[float]) -> Dict[str, float]:
+    """Fusionne statistiques obligatoires et statistiques supplementaires."""
+    merged = describe_feature(values)
+    merged.update(describe_feature_extra(values))
+    return merged
+
+
 def pearson(a: Sequence[float], b: Sequence[float]) -> float:
     """Coefficient de correlation lineaire de Pearson (ignore les paires NaN)."""
     x = np.asarray(a, dtype=float)
@@ -367,6 +460,62 @@ def stratified_folds(labels: Sequence[str], k: int = 5, seed: int = 42) -> List[
 # --------------------------------------------------------------------------- #
 # Aide au trace
 # --------------------------------------------------------------------------- #
+
+def apply_style() -> None:
+    """Applique un style matplotlib sobre et coherent a toutes les figures.
+
+    Police unique, grille discrete sous les traces, suppression des bordures
+    haute et droite, fond legerement chaud. A appeler avant tout trace.
+    """
+    import matplotlib
+    import matplotlib.pyplot as plt
+
+    plt.rcParams.update({
+        "figure.dpi": 110,
+        "savefig.dpi": 150,
+        "figure.facecolor": FIGURE_BACKGROUND,
+        "savefig.facecolor": FIGURE_BACKGROUND,
+        "axes.facecolor": FIGURE_BACKGROUND,
+        "font.family": "sans-serif",
+        "font.sans-serif": ["Helvetica Neue", "Helvetica", "Arial", "DejaVu Sans"],
+        "axes.titlesize": 10.5,
+        "axes.titleweight": "semibold",
+        "axes.labelsize": 9.5,
+        "axes.labelcolor": "#2b2b2b",
+        "axes.edgecolor": FIGURE_EDGE,
+        "axes.linewidth": 0.8,
+        "axes.spines.top": False,
+        "axes.spines.right": False,
+        "axes.grid": True,
+        "axes.axisbelow": True,
+        "grid.color": FIGURE_GRID,
+        "grid.linewidth": 0.6,
+        "grid.alpha": 0.7,
+        "legend.frameon": False,
+        "legend.fontsize": 9,
+        "xtick.labelsize": 8.5,
+        "ytick.labelsize": 8.5,
+        "xtick.color": "#4a4a4a",
+        "ytick.color": "#4a4a4a",
+        "text.color": "#1b1b1b",
+    })
+    matplotlib.use(matplotlib.get_backend())
+
+
+def require_plotting(show: bool = False):
+    """Importe matplotlib (backend adapte) ou explique comment installer les dependances."""
+    try:
+        import matplotlib
+    except ImportError as exc:  # pragma: no cover - depend de l'environnement
+        raise SystemExit(
+            "Erreur : matplotlib est introuvable pour cet interpreteur (%s).\n"
+            "  Installez-le : python3 -m pip install -r requirements.txt\n"
+            "  ou lancez via 'make' / 'make check'." % sys.executable
+        ) from exc
+    if not show:
+        matplotlib.use("Agg")
+    return matplotlib
+
 
 def prepare_plots_dir(path: str = "plots") -> str:
     """Cree (si besoin) le dossier de sortie des figures et le renvoie."""

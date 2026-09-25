@@ -29,12 +29,15 @@ import numpy as np
 
 from dslr_utils import (
     HOUSE_COLORS,
+    HOUSE_COLORS_SOFT,
     HOUSES,
+    apply_style,
     finalize_figure,
     load_dataset,
     mean,
     parse_common_plot_args,
     prepare_plots_dir,
+    require_plotting,
     std,
 )
 
@@ -82,14 +85,12 @@ def plot_matrix(
     show: bool,
 ) -> None:
     """Trace la matrice complete ``n x n`` de nuages de points (diagonale = hist)."""
-    import matplotlib
-
-    if not show:
-        matplotlib.use("Agg")
+    require_plotting(show)
     import matplotlib.pyplot as plt
 
+    apply_style()
     n = len(features)
-    fig, axes = plt.subplots(n, n, figsize=(2.0 * n, 2.0 * n))
+    fig, axes = plt.subplots(n, n, figsize=(1.9 * n, 1.9 * n))
 
     for row in range(n):
         for col in range(n):
@@ -97,28 +98,39 @@ def plot_matrix(
             x_values = matrix[:, col]
             y_values = matrix[:, row]
             if row == col:
+                finite = x_values[~np.isnan(x_values)]
+                bins = np.linspace(finite.min(), finite.max(), 18) if finite.size else 10
                 for house in HOUSES:
                     selected = x_values[(labels == house) & ~np.isnan(x_values)]
                     if selected.size:
-                        ax.hist(selected, bins=15, alpha=0.5, color=HOUSE_COLORS[house])
+                        ax.hist(selected, bins=bins, color=HOUSE_COLORS_SOFT[house],
+                                alpha=0.85, edgecolor="white", linewidth=0.3)
             else:
                 for house in HOUSES:
                     mask = (labels == house) & ~np.isnan(x_values) & ~np.isnan(y_values)
-                    ax.scatter(x_values[mask], y_values[mask], s=3, alpha=0.5,
+                    ax.scatter(x_values[mask], y_values[mask], s=2.5, alpha=0.5,
                                color=HOUSE_COLORS[house], edgecolors="none")
-            ax.tick_params(labelsize=4, length=1)
-            if col == 0:
-                ax.set_ylabel(features[row][:14], fontsize=6)
+
+            ax.grid(False)
+            ax.tick_params(labelsize=4.5, length=1.5, pad=1)
+            if col != 0:
+                ax.set_yticklabels([])
+            if row != n - 1:
+                ax.set_xticklabels([])
             if row == n - 1:
-                ax.set_xlabel(features[col][:14], fontsize=6)
+                ax.set_xlabel("\n".join(features[col].split(" ")), fontsize=6, labelpad=1)
+            if col == 0:
+                ax.set_ylabel(features[row], fontsize=6, labelpad=1)
 
     handles = [
-        plt.Line2D([0], [0], marker="o", linestyle="", color=HOUSE_COLORS[house], label=house)
+        plt.Line2D([0], [0], marker="o", linestyle="", markersize=7,
+                   color=HOUSE_COLORS[house], label=house)
         for house in HOUSES
     ]
-    fig.legend(handles=handles, loc="upper center", ncol=4, fontsize=12)
-    fig.suptitle("Pair plot des notes par maison", fontsize=16, fontweight="bold", y=0.995)
-    fig.tight_layout(rect=(0, 0, 1, 0.98))
+    fig.legend(handles=handles, loc="upper center", ncol=4, fontsize=12,
+               bbox_to_anchor=(0.5, 1.0))
+    fig.suptitle("Pair plot des notes par maison", fontsize=17, fontweight="bold", y=1.012)
+    fig.tight_layout(rect=(0, 0, 1, 0.985))
     finalize_figure(fig, save_path=save_path, show=show)
 
 

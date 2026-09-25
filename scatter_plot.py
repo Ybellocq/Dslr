@@ -9,7 +9,7 @@ Methode : on calcule la matrice de correlation de Pearson (implementee a la
 main) entre toutes les paires de cours et on retient la paire dont la valeur
 absolue de correlation est maximale. Deux features quasi identiques ont une
 correlation proche de +/-1. La figure affiche ce nuage de points, colore par
-maison.
+maison, avec la droite de regression.
 
 Usage :
     python3 scatter_plot.py datasets/dataset_train.csv
@@ -24,13 +24,17 @@ from typing import List, Tuple
 import numpy as np
 
 from dslr_utils import (
-    HOUSE_COLORS,
     HOUSES,
+    HOUSE_COLORS,
+    apply_style,
     correlation_matrix,
     finalize_figure,
     load_dataset,
+    mean,
     parse_common_plot_args,
     prepare_plots_dir,
+    require_plotting,
+    std,
 )
 
 
@@ -52,6 +56,17 @@ def most_correlated_pair(
     return best
 
 
+def regression_line(x: np.ndarray, y: np.ndarray, correlation: float) -> Tuple[float, float]:
+    """Pente et ordonnee a l'origine de la droite des moindres carres (calculees a la main)."""
+    sx = std(x, ddof=0)
+    sy = std(y, ddof=0)
+    if sx == 0:
+        return 0.0, mean(y)
+    slope = correlation * sy / sx
+    intercept = mean(y) - slope * mean(x)
+    return slope, intercept
+
+
 def plot_pair(
     x_label: str,
     y_label: str,
@@ -63,25 +78,30 @@ def plot_pair(
     show: bool,
 ) -> None:
     """Trace le nuage de points de deux features, colore par maison."""
-    import matplotlib
-
-    if not show:
-        matplotlib.use("Agg")
+    require_plotting(show)
     import matplotlib.pyplot as plt
 
-    fig, ax = plt.subplots(figsize=(8, 7))
+    apply_style()
+    fig, ax = plt.subplots(figsize=(8.4, 7.0))
     for house in HOUSES:
         mask = (labels == house) & ~np.isnan(x_values) & ~np.isnan(y_values)
-        ax.scatter(x_values[mask], y_values[mask], s=14, alpha=0.6,
-                   color=HOUSE_COLORS[house], label=house, edgecolors="none")
+        ax.scatter(x_values[mask], y_values[mask], s=20, alpha=0.62,
+                   color=HOUSE_COLORS[house], label=house,
+                   edgecolors="white", linewidths=0.4)
+
+    valid = ~np.isnan(x_values) & ~np.isnan(y_values)
+    if valid.any() and abs(correlation) > 1e-9:
+        slope, intercept = regression_line(x_values[valid], y_values[valid], correlation)
+        xs = np.array([np.nanmin(x_values), np.nanmax(x_values)])
+        ax.plot(xs, slope * xs + intercept, color="#333333", linewidth=1.2,
+                linestyle="--", label="regression lineaire (r = %.3f)" % correlation)
+
     ax.set_xlabel(x_label)
     ax.set_ylabel(y_label)
-    ax.set_title(
-        "Features similaires : %s vs %s (r = %.4f)" % (x_label, y_label, correlation),
-        fontweight="bold",
-    )
-    ax.legend()
-    ax.grid(True, alpha=0.2)
+    ax.set_title("Features similaires : %s vs %s" % (x_label, y_label),
+                 fontsize=13, fontweight="bold")
+    ax.legend(loc="best")
+    fig.tight_layout()
     finalize_figure(fig, save_path=save_path, show=show)
 
 

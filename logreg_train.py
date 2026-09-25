@@ -4,8 +4,10 @@
 Le programme prend ``dataset_train.csv`` en parametre et entraine QUATRE
 classifieurs binaires (un par maison) suivant la strategie « one-versus-all » :
 pour chaque maison, on apprend un modele qui separe cette maison des trois
-autres. L'optimisation se fait par DESCENTE DE GRADIENT (batch gradient
-descent) - la technique imposee par le sujet.
+autres. L'optimisation par defaut est la DESCENTE DE GRADIENT par lots (batch
+gradient descent) - la technique imposee par le sujet. Le bonus ajoute deux
+variantes selectionnables avec ``--optimizer`` : la descente stochastique (SGD)
+et la descente par mini-lots (mini-batch).
 
 Le programme produit un fichier de poids JSON contenant, pour chaque maison :
 les thetas, ainsi que les parametres de pretraitement (moyennes et ecarts-types)
@@ -23,6 +25,8 @@ Usage :
     python3 logreg_train.py datasets/dataset_train.csv
     python3 logreg_train.py datasets/dataset_train.csv --cv 5
     python3 logreg_train.py datasets/dataset_train.csv --lr 0.5 --epochs 8000 --output weights.json
+    python3 logreg_train.py datasets/dataset_train.csv --optimizer sgd --epochs 50 --seed 42
+    python3 logreg_train.py datasets/dataset_train.csv --optimizer minibatch --batch-size 32
 """
 
 from __future__ import annotations
@@ -55,6 +59,18 @@ def cost_function(probabilities: np.ndarray, Y: np.ndarray) -> float:
                  / Y.shape[0])
 
 
+OPTIMIZERS = ("batch", "sgd", "minibatch")
+
+
+def effective_batch_size(optimizer: str, batch_size: int, n_samples: int) -> int:
+    """Traduit un nom d'optimiseur en taille de lot effective (bornee a n)."""
+    if optimizer == "batch":
+        return n_samples
+    if optimizer == "sgd":
+        return 1
+    return max(1, min(int(batch_size), n_samples))
+
+
 def train_one_vs_all(
     X_standardized: np.ndarray,
     Y: np.ndarray,
@@ -63,26 +79,52 @@ def train_one_vs_all(
     l2: float = 0.0,
     verbose: bool = True,
     log_every: int = 500,
+    optimizer: str = "batch",
+    batch_size: int = 32,
+    seed: int = 42,
 ) -> Tuple[np.ndarray, List[float]]:
-    """Entraine les quatre classifieurs one-vs-all par descente de gradient batch.
+    """Entraine les quatre classifieurs one-vs-all par descente de gradient.
+
+    Trois variantes (bonus du sujet) sont disponibles via ``optimizer`` :
+
+    * ``"batch"``     : un pas de gradient par epoque sur tout le jeu (defaut) ;
+    * ``"sgd"``       : un pas par exemple, ordre melange a chaque epoque ;
+    * ``"minibatch"`` : un pas par lot de ``batch_size`` exemples melanges.
 
     ``X_standardized`` ne contient PAS la colonne de biais : elle est ajoutee ici.
+    ``seed`` rend le melange reproductible.
     Retourne ``(W, historique_du_cout)`` ou ``W`` a la forme ``(n_features + 1, 4)``.
     """
+    if optimizer not in OPTIMIZERS:
+        raise ValueError("optimiseur inconnu : %s" % optimizer)
     m, n = X_standardized.shape
     X_bias = np.hstack([np.ones((m, 1)), X_standardized])
     theta = np.zeros((n + 1, Y.shape[1]))
     history: List[float] = []
+    size = effective_batch_size(optimizer, batch_size, m)
+    rng = np.random.default_rng(seed)
 
     for epoch in range(epochs):
-        probabilities = sigmoid(X_bias @ theta)
-        gradient = X_bias.T @ (probabilities - Y) / m
-        if l2:
-            gradient = gradient + (l2 / m) * theta
-        theta = theta - learning_rate * gradient
+        if size >= m:
+            blocks = [None]  # lot complet
+        else:
+            order = rng.permutation(m)
+            blocks = [order[start:start + size] for start in range(0, m, size)]
+
+        for block in blocks:
+            if block is None:
+                X_batch, Y_batch = X_bias, Y
+            else:
+                X_batch, Y_batch = X_bias[block], Y[block]
+            count = X_batch.shape[0]
+            probabilities = sigmoid(X_batch @ theta)
+            gradient = X_batch.T @ (probabilities - Y_batch) / count
+            if l2:
+                gradient = gradient + (l2 / count) * theta
+            theta = theta - learning_rate * gradient
 
         if verbose and (epoch % log_every == 0 or epoch == epochs - 1):
-            cost = cost_function(probabilities, Y)
+            cost = cost_function(sigmoid(X_bias @ theta), Y)
             history.append(cost)
             print("  epoch %6d | cout J = %.6f" % (epoch, cost))
     return theta, history
@@ -117,6 +159,8 @@ def cross_validate(
     l2: float,
     k: int,
     seed: int,
+    optimizer: str = "batch",
+    batch_size: int = 32,
 ) -> float:
     """Estime l'accuracy par validation croisee stratifiee (implementation manuelle)."""
     folds = stratified_folds(labels, k=k, seed=seed)
@@ -127,7 +171,9 @@ def cross_validate(
         train_index = np.concatenate([folds[i] for i in range(k) if i != fold_index])
         X_train, mu, sd = preprocess_train(X[train_index])
         Y_train = one_hot(labels[train_index])
-        theta, _ = train_one_vs_all(X_train, Y_train, learning_rate, epochs, l2, verbose=False)
+        theta, _ = train_one_vs_all(X_train, Y_train, learning_rate, epochs, l2,
+                                    verbose=False, optimizer=optimizer,
+                                    batch_size=batch_size, seed=seed)
 
         X_test_imputed, _ = impute_with_mean(X[test_index])
         X_test, _, _ = standardize(X_test_imputed, mu, sd)
@@ -170,7 +216,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--features", default="",
                         help="liste de features a utiliser, separees par des virgules (defaut : toutes)")
     parser.add_argument("--lr", type=float, default=0.5, help="taux d'apprentissage")
-    parser.add_argument("--epochs", type=int, default=8000, help="nombre d'iterations")
+    parser.add_argument("--epochs", type=int, default=8000,
+                        help="nombre d'iterations (epoques) ; avec sgd/minibatch, une valeur "
+                             "plus faible (20-200) suffit generalement")
+    parser.add_argument("--optimizer", choices=OPTIMIZERS, default="batch",
+                        help="descente de gradient : batch (defaut), sgd ou minibatch")
+    parser.add_argument("--batch-size", type=int, default=32,
+                        help="taille de lot pour --optimizer minibatch (defaut : 32)")
     parser.add_argument("--l2", type=float, default=0.0, help="regularisation L2 (0 = desactivee)")
     parser.add_argument("--cv", type=int, default=0,
                         help="nombre de plis de validation croisee (0 = desactivee)")
@@ -189,20 +241,29 @@ def main() -> None:
         raise SystemExit("Le jeu d'entrainement doit contenir la colonne 'Hogwarts House'.")
 
     print("Features utilisees (%d) : %s" % (len(features), ", ".join(features)))
+    print("Optimiseur : %s%s (lr=%.4g, epochs=%d, l2=%.4g, seed=%d)"
+          % (args.optimizer,
+             "" if args.optimizer != "minibatch" else " (batch_size=%d)" % args.batch_size,
+             args.lr, args.epochs, args.l2, args.seed))
 
     if args.cv > 0:
         print("\nValidation croisee stratifiee (%d plis) :" % args.cv)
         mean_accuracy = cross_validate(features, X, labels, args.lr, args.epochs,
-                                       args.l2, args.cv, args.seed)
+                                       args.l2, args.cv, args.seed,
+                                       optimizer=args.optimizer, batch_size=args.batch_size)
         print("Accuracy moyenne (%d plis) = %.4f" % (args.cv, mean_accuracy))
 
     print("\nEntrainement final sur l'integralite du jeu d'entrainement :")
     X_standardized, mu, sd = preprocess_train(X)
     Y = one_hot(labels)
-    theta, _ = train_one_vs_all(X_standardized, Y, args.lr, args.epochs, args.l2)
+    theta, _ = train_one_vs_all(X_standardized, Y, args.lr, args.epochs, args.l2,
+                                optimizer=args.optimizer, batch_size=args.batch_size,
+                                seed=args.seed)
 
     save_weights(args.output, features, mu, sd, theta,
-                 {"lr": args.lr, "epochs": args.epochs, "l2": args.l2})
+                 {"lr": args.lr, "epochs": args.epochs, "l2": args.l2,
+                  "optimizer": args.optimizer, "batch_size": args.batch_size,
+                  "seed": args.seed})
 
 
 if __name__ == "__main__":
