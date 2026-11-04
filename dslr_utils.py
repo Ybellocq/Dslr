@@ -26,7 +26,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 try:
     import numpy as np
-except ImportError as exc:  # pragma: no cover - depend de l'environnement
+except ImportError as exc:
     raise SystemExit(
         "Erreur : numpy est introuvable pour cet interpreteur.\n"
         "  Interpreteur utilise : %s\n"
@@ -42,10 +42,10 @@ except ImportError as exc:  # pragma: no cover - depend de l'environnement
 # Constantes du domaine
 # --------------------------------------------------------------------------- #
 
-#: Les quatre maisons de Poudlard, dans un ordre stable et reutilisable.
+# Les quatre maisons de Poudlard, dans un ordre stable et reutilisable.
 HOUSES: List[str] = ["Gryffindor", "Hufflepuff", "Ravenclaw", "Slytherin"]
 
-#: Palette principale des maisons : teintes sobres et harmonisees entre elles.
+# Palette principale des maisons : teintes sobres et harmonisees entre elles.
 HOUSE_COLORS: Dict[str, str] = {
     "Gryffindor": "#b03a2e",  # rouge brique
     "Slytherin": "#1e7a52",   # vert emeraude
@@ -53,7 +53,7 @@ HOUSE_COLORS: Dict[str, str] = {
     "Hufflepuff": "#d6a419",  # jaune dore
 }
 
-#: Variante adoucie (remplissages, aires, histogrammes).
+# Variante adoucie (remplissages, aires, histogrammes).
 HOUSE_COLORS_SOFT: Dict[str, str] = {
     "Gryffindor": "#e6a59c",
     "Slytherin": "#9ed3b8",
@@ -61,12 +61,12 @@ HOUSE_COLORS_SOFT: Dict[str, str] = {
     "Hufflepuff": "#efd28c",
 }
 
-#: Encre et fond communs a toutes les figures (coherence visuelle).
+# Encre et fond communs a toutes les figures (coherence visuelle).
 FIGURE_BACKGROUND = "#fbfbf9"
 FIGURE_EDGE = "#4a4a4a"
 FIGURE_GRID = "#dcdcdc"
 
-#: Colonnes du CSV qui ne sont pas des notes de cours numeriques.
+# Colonnes du CSV qui ne sont pas des notes de cours numeriques.
 NON_NUMERIC_COLUMNS = (
     "Index",
     "Hogwarts House",
@@ -76,11 +76,11 @@ NON_NUMERIC_COLUMNS = (
     "Best Hand",
 )
 
-#: Libelles et cles des huit statistiques de ``describe``.
+# Libelles et cles des huit statistiques de describe.
 STAT_LABELS: List[str] = ["Count", "Mean", "Std", "Min", "25%", "50%", "75%", "Max"]
 STAT_KEYS: List[str] = ["count", "mean", "std", "min", "25%", "50%", "75%", "max"]
 
-#: Statistiques supplementaires (bonus de ``describe.py``, option ``--extra``).
+# Statistiques supplementaires (bonus de describe.py, option --extra).
 EXTRA_LABELS: List[str] = ["Variance", "Range", "IQR", "Missing", "Missing %", "Skewness"]
 EXTRA_KEYS: List[str] = ["variance", "range", "iqr", "missing", "missing_pct", "skewness"]
 
@@ -123,8 +123,8 @@ def numeric_features(
     """Determine la liste des colonnes numeriques (notes de cours).
 
     Une colonne est numerique si toutes ses valeurs non vides s'interprettent
-    comme des nombres. Les colonnes de :data:`NON_NUMERIC_COLUMNS` et celles de
-    ``exclude`` sont systematiquement ecartees.
+    comme des nombres. Les colonnes non numeriques (Index, Hogwarts House, etc.)
+    et celles de ``exclude`` sont systematiquement ecartees.
     """
     excluded = set(NON_NUMERIC_COLUMNS)
     if exclude:
@@ -264,7 +264,7 @@ def describe_feature(values: Sequence[float]) -> Dict[str, float]:
 
 
 def describe_matrix(X: np.ndarray, features: Sequence[str]) -> Dict[str, Dict[str, float]]:
-    """Applique :func:`describe_feature` a chaque colonne de ``X``."""
+    """Applique describe_feature a chaque colonne de X."""
     return {feature: describe_feature(X[:, j]) for j, feature in enumerate(features)}
 
 
@@ -506,7 +506,7 @@ def require_plotting(show: bool = False):
     """Importe matplotlib (backend adapte) ou explique comment installer les dependances."""
     try:
         import matplotlib
-    except ImportError as exc:  # pragma: no cover - depend de l'environnement
+    except ImportError as exc:
         raise SystemExit(
             "Erreur : matplotlib est introuvable pour cet interpreteur (%s).\n"
             "  Installez-le : python3 -m pip install -r requirements.txt\n"

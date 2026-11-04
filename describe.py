@@ -32,10 +32,10 @@ from dslr_utils import (
     load_dataset,
 )
 
-#: Espacement (en caracteres) entre deux colonnes du tableau.
+# Espacement (en caracteres) entre deux colonnes du tableau.
 COLUMN_GAP = 2
 
-#: Nombre de decimales affichees (impose par l'exemple du sujet).
+# Nombre de decimales affichees (impose par l'exemple du sujet).
 DECIMALS = 6
 
 

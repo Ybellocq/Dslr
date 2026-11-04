@@ -33,7 +33,7 @@ from dslr_utils import HOUSES, load_dataset, sigmoid, standardize
 
 
 def load_weights(path: str) -> Dict[str, object]:
-    """Charge le fichier de poids JSON produit par :mod:`logreg_train`."""
+    """Charge le fichier de poids JSON produit par logreg_train."""
     with open(path, "r", encoding="utf-8") as handle:
         payload = json.load(handle)
     required = {"houses", "features", "mu", "sd", "theta"}
