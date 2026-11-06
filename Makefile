@@ -27,7 +27,7 @@ PLOTS ?= plots
 
 .PHONY: all deps install check describe describe-extra histogram scatter pair plots train train-cv bonus predict clean distclean re help
 
-all: deps describe plots train predict  ## chaine complete : deps + stats + figures + entrainement + prediction
+all: deps describe plots train-cv predict  ## chaine complete : deps + stats + figures + entrainement + validation croisee + prediction
 
 # --------------------------------------------------------------------------- #
 # Dependances
@@ -39,20 +39,50 @@ $(STAMP): requirements.txt
 	@if $(PYTHON) -c "import numpy, matplotlib" >/dev/null 2>&1; then \
 		echo "    OK : dependances deja disponibles ($(PYTHON))"; \
 		touch $(STAMP); \
-	elif [ -x "$(VENV_PY)" ]; then \
-		echo "    Installation dans l'environnement virtuel existant $(VENV)..."; \
-		$(VENV_PY) -m pip install --quiet --upgrade pip; \
-		$(VENV_PY) -m pip install --quiet -r requirements.txt && touch $(STAMP); \
 	else \
-		echo "    Aucun interpréteur avec numpy : creation de $(VENV) avec $(BASE_PYTHON)..."; \
-		$(BASE_PYTHON) -m venv $(VENV) && \
-		$(VENV_PY) -m pip install --quiet --upgrade pip && \
-		$(VENV_PY) -m pip install --quiet -r requirements.txt && touch $(STAMP); \
+		if [ ! -x "$(VENV_PY)" ]; then \
+			echo "    Aucun interpreteur avec numpy : creation de $(VENV) avec $(BASE_PYTHON)..."; \
+			$(BASE_PYTHON) -m venv $(VENV); \
+		fi; \
+		if ! $(VENV_PY) -c "import pip" >/dev/null 2>&1; then \
+			echo "    Installation de pip dans $(VENV)..."; \
+			if $(VENV_PY) -m ensurepip --upgrade >/dev/null 2>&1; then \
+				$(VENV_PY) -m pip install --quiet --upgrade pip --index-url https://pypi.org/simple; \
+			else \
+				echo "    ensurepip non disponible, utilisation de get-pip.py..."; \
+				$(VENV_PY) -c "import urllib.request; urllib.request.urlretrieve('https://bootstrap.pypa.io/get-pip.py', 'get-pip.py')" && \
+				$(VENV_PY) get-pip.py --index-url https://pypi.org/simple && \
+				rm -f get-pip.py; \
+			fi; \
+		fi; \
+		echo "    Installation des dependances dans $(VENV)..."; \
+		$(VENV_PY) -m pip install --quiet --upgrade pip --index-url https://pypi.org/simple; \
+		$(VENV_PY) -m pip install --quiet -r requirements.txt --index-url https://pypi.org/simple && touch $(STAMP) || exit 1; \
 	fi
 
 install:  ## force la (re)installation des dependances
 	@rm -f $(STAMP)
 	@$(MAKE) --no-print-directory deps
+
+install-ecole42:  ## installe numpy et matplotlib via la commande specifique pour ecole42 (resout "No module named pip")
+	@echo ">>> Installation via index PyPI pour ecole42..."
+	@if [ ! -x "$(VENV_PY)" ]; then \
+		echo "    Creation de $(VENV) avec $(BASE_PYTHON)..."; \
+		$(BASE_PYTHON) -m venv $(VENV); \
+	fi
+	@if ! $(VENV_PY) -c "import pip" >/dev/null 2>&1; then \
+		echo "    Installation de pip dans $(VENV)..."; \
+		if $(VENV_PY) -m ensurepip --upgrade >/dev/null 2>&1; then \
+			$(VENV_PY) -m pip install --quiet --upgrade pip --index-url https://pypi.org/simple; \
+		else \
+			echo "    ensurepip non disponible, utilisation de get-pip.py..."; \
+			$(VENV_PY) -c "import urllib.request; urllib.request.urlretrieve('https://bootstrap.pypa.io/get-pip.py', 'get-pip.py')" && \
+			$(VENV_PY) get-pip.py --index-url https://pypi.org/simple && \
+			rm -f get-pip.py; \
+		fi; \
+	fi
+	$(VENV_PY) -m pip install --index-url https://pypi.org/simple "numpy>=1.21" matplotlib
+	touch $(STAMP)
 
 check: deps  ## affiche l'interpreteur retenu et les versions
 	@$(PYTHON) -c "import sys; print('Interpreteur      :', sys.executable)"
